@@ -67,6 +67,47 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ message: "Login error", error: err.message });
   }
 });
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: "Access Denied: No Token Provided" });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    // Token ke andar jo 'userId' hai, use 'req.user' mein save kar rahe hain
+    req.user = decoded; 
+    next();
+  } catch (err) {
+    res.status(401).json({ message: "Invalid Token" });
+  }
+};
+
+app.get('/api/user/profile', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('-password');
+    
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Login API jaisa hi format: { message, user }
+    res.json({ 
+      message: "User details fetched successfully", 
+      user: { 
+        name: user.name, 
+        email: user.email
+        
+      } 
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+
+
 
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
