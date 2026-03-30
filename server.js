@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -8,10 +9,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const JWT_SECRET = 'your_secret_key_123';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // --- MongoDB Connection ---
-const MONGO_URI = "mongodb+srv://akashprajapati1952_db_user:dWVN6zYiyRpWe1m6@akash-cluster.6bbdwki.mongodb.net/shopzilla?retryWrites=true&w=majority&appName=Akash-Cluster";
+const MONGO_URI = process.env.MONGO_URI;
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully!"))
@@ -21,8 +22,17 @@ mongoose.connect(MONGO_URI)
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  // Naya Cart Field add karein:
+  cart: [
+    {
+      productId: { type: String, required: true },
+      quantity: { type: Number, default: 1 }
+    }
+  ]
 });
+
+
 
 const User = mongoose.model('User', userSchema);
 
@@ -46,7 +56,7 @@ app.post('/api/signup', async (req, res) => {
     res.status(201).json({ 
       message: "Signup successful!", 
       token, 
-      user: { name: newUser.name, email: newUser.email } 
+      user: { name: newUser.name, email: newUser.email, cart:user.cart || [] } 
     });
   } catch (err) {
     res.status(500).json({ message: "Signup error", error: err.message });
@@ -68,7 +78,7 @@ app.post('/api/login', async (req, res) => {
     res.json({ 
       message: "Login success", 
       token, 
-      user: { name: user.name, email: user.email } 
+      user: { name: user.name, email: user.email, cart:user.cart || [] } 
     });
   } catch (err) {
     res.status(500).json({ message: "Login error", error: err.message });
@@ -98,16 +108,41 @@ app.get('/api/user/profile', authMiddleware, async (req, res) => {
 
     res.json({ 
       message: "User details fetched successfully", 
-      user: { name: user.name, email: user.email } 
+      user: { name: user.name, email: user.email, cart: user.cart || []} 
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+app.post('/api/user/update-cart', authMiddleware, async (req, res) => {
+  try {
+    // req.body mein wahi list aayegi: [{productId: "1", quantity: 2}, ...]
+    const { cartData } = req.body; 
+
+    if (!Array.isArray(cartData)) {
+      return res.status(400).json({ message: "Invalid cart data format" });
+    }
+
+    // User find karein aur uska cart update kar dein
+    const user = await User.findByIdAndUpdate(
+      req.user.userId, 
+      { cart: cartData }, 
+      { new: true } // Isse updated user wapas milta hai
+    );
+
+    res.json({ 
+      message: "Cart synced successfully", 
+      cart: user.cart 
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
+
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
