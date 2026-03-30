@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose'); // mongoose जोड़ा गया
+const mongoose = require('mongoose');
 
 const app = express();
 app.use(cors());
@@ -10,14 +10,14 @@ app.use(express.json());
 
 const JWT_SECRET = 'your_secret_key_123';
 
-// --- MongoDB कनेक्शन (आपका असली लिंक) ---
+// --- MongoDB Connection ---
 const MONGO_URI = "mongodb+srv://akashprajapati1952_db_user:dWVN6zYiyRpWe1m6@akash-cluster.6bbdwki.mongodb.net/shopzilla?retryWrites=true&w=majority&appName=Akash-Cluster";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully!"))
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
-// --- User Schema (डेटाबेस का ढांचा) ---
+// --- User Schema ---
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
@@ -28,7 +28,7 @@ const User = mongoose.model('User', userSchema);
 
 // --- APIs ---
 
-// 1. Signup API
+// 1. Signup API (Ab ye User Data + Token dono bhejega)
 app.post('/api/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -40,7 +40,14 @@ app.post('/api/signup', async (req, res) => {
     const newUser = new User({ name, email, password: hashedPassword });
     await newUser.save();
 
-    res.status(201).json({ message: "Signup successful in MongoDB!" });
+    // Signup ke baad hi Token generate karna taaki user direct login ho jaye
+    const token = jwt.sign({ userId: newUser._id }, JWT_SECRET, { expiresIn: '24h' });
+
+    res.status(201).json({ 
+      message: "Signup successful!", 
+      token, 
+      user: { name: newUser.name, email: newUser.email } 
+    });
   } catch (err) {
     res.status(500).json({ message: "Signup error", error: err.message });
   }
@@ -57,7 +64,7 @@ app.post('/api/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(401).json({ message: "Invalid credentials" });
 
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ 
       message: "Login success", 
       token, 
@@ -67,18 +74,16 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ message: "Login error", error: err.message });
   }
 });
+
+// --- Middleware & Profile Route ---
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization;
-
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ message: "Access Denied: No Token Provided" });
   }
-
   const token = authHeader.split(' ')[1];
-
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    // Token ke andar jo 'userId' hai, use 'req.user' mein save kar rahe hain
     req.user = decoded; 
     next();
   } catch (err) {
@@ -89,25 +94,16 @@ const authMiddleware = (req, res, next) => {
 app.get('/api/user/profile', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId).select('-password');
-    
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Login API jaisa hi format: { message, user }
     res.json({ 
       message: "User details fetched successfully", 
-      user: { 
-        name: user.name, 
-        email: user.email
-        
-      } 
+      user: { name: user.name, email: user.email } 
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
-
-
-
 
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
