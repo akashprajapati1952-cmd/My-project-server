@@ -19,26 +19,23 @@ mongoose.connect(MONGO_URI)
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
 // --- User Schema ---
+// --- User Schema ---
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  // Naya Cart Field add karein:
-  cart: [
-    {
-      productId: { type: String, required: true },
-      quantity: { type: Number, default: 1 }
-    }
-  ]
+  // Map use karne se aapka { "1": 5 } wala format chal jayega
+  cart: {
+    type: Map,
+    of: Number,
+    default: {}
+  }
 });
-
 
 
 const User = mongoose.model('User', userSchema);
 
-// --- APIs ---
-
-// 1. Signup API (Ab ye User Data + Token dono bhejega)
+// --- Signup API ---
 app.post('/api/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -50,18 +47,24 @@ app.post('/api/signup', async (req, res) => {
     const newUser = new User({ name, email, password: hashedPassword });
     await newUser.save();
 
-    // Signup ke baad hi Token generate karna taaki user direct login ho jaye
     const token = jwt.sign({ userId: newUser._id }, JWT_SECRET, { expiresIn: '24h' });
 
     res.status(201).json({ 
       message: "Signup successful!", 
       token, 
-      user: { name: newUser.name, email: newUser.email, cart:user.cart || [] } 
+      user: { name: newUser.name, email: newUser.email, cart: newUser.cart } 
     });
   } catch (err) {
+    // Isse aapko Termux mein asli error dikhega
+    console.error("Signup Error Details:", err); 
     res.status(500).json({ message: "Signup error", error: err.message });
   }
 });
+
+
+
+
+
 
 // 2. Login API
 app.post('/api/login', async (req, res) => {
@@ -78,7 +81,7 @@ app.post('/api/login', async (req, res) => {
     res.json({ 
       message: "Login success", 
       token, 
-      user: { name: user.name, email: user.email, cart:user.cart || [] } 
+      user: { name: user.name, email: user.email, cart: user.cart || [] } 
     });
   } catch (err) {
     res.status(500).json({ message: "Login error", error: err.message });
@@ -116,18 +119,13 @@ app.get('/api/user/profile', authMiddleware, async (req, res) => {
 });
 app.post('/api/user/update-cart', authMiddleware, async (req, res) => {
   try {
-    // req.body mein wahi list aayegi: [{productId: "1", quantity: 2}, ...]
-    const { cartData } = req.body; 
+    const { cartData } = req.body; // Yahan { "1": 5, "2": 6 } aayega
 
-    if (!Array.isArray(cartData)) {
-      return res.status(400).json({ message: "Invalid cart data format" });
-    }
-
-    // User find karein aur uska cart update kar dein
+    // User find karein aur naya cart save karein
     const user = await User.findByIdAndUpdate(
       req.user.userId, 
       { cart: cartData }, 
-      { new: true } // Isse updated user wapas milta hai
+      { new: true }
     );
 
     res.json({ 
@@ -138,6 +136,7 @@ app.post('/api/user/update-cart', authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
+
 
 
 app.use((req, res) => {
