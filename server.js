@@ -119,7 +119,7 @@ app.get('/api/user/profile', authMiddleware, async (req, res) => {
 });
 app.post('/api/user/update-cart', authMiddleware, async (req, res) => {
   try {
-    const { cartData } = req.body; // Yahan { "1": 5, "2": 6 } aayega
+    const  cartData = req.body; // Yahan { "1": 5, "2": 6 } aayega
 
     // User find karein aur naya cart save karein
     const user = await User.findByIdAndUpdate(
