@@ -4,47 +4,108 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
+const nodemailer = require('nodemailer'); // Added for sending OTP emails
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET;
-
-// --- MongoDB Connection ---
 const MONGO_URI = process.env.MONGO_URI;
 
+// --- MongoDB Connection ---
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully!"))
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
-// --- User Schema ---
+// --- Nodemailer Transporter Setup ---
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// Helper function to send email
+const sendOtpEmail = async (email, otp, subject) => {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: subject,
+    text: `Aapka OTP hai: ${otp}. Ye OTP agle 10 minutes tak valid hai.`
+  };
+  await transporter.sendMail(mailOptions);
+};
+
 // --- User Schema ---
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  // Map use karne se aapka { "1": 5 } wala format chal jayega
   cart: {
     type: Map,
     of: Number,
     default: {}
-  }
+  },
+  // Fields for temporary storage of OTP
+  otp: { type: String, default: null },
+  otpExpires: { type: Date, default: null }
 });
-
 
 const User = mongoose.model('User', userSchema);
 
-// --- Signup API ---
-app.post('/api/signup', async (req, res) => {
+// --- 1. SIGNUP FLOW WITH OTP ---
+
+// Step A: Send OTP for Signup
+app.post('/api/signup/send-otp', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
     
     const userExists = await User.findOne({ email });
     if (userExists) return res.status(400).json({ message: "User already exists" });
 
+    // Generate 6 digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins validity
+
+    await sendOtpEmail(email, otp, "Signup OTP Verification");
+
+    // Secure temporary session token so we don't have to save unverified user data in DB
+    const signupToken = jwt.sign({ email, otp, otpExpires }, JWT_SECRET, { expiresIn: '10m' });
+
+    res.status(200).json({ message: "OTP sent successfully to your email", signupToken });
+  } catch (err) {
+    console.error("Signup OTP Error Details:", err);
+    res.status(500).json({ message: "Error sending OTP", error: err.message });
+  }
+});
+
+// Step B: Verify OTP & Complete Registration
+app.post('/api/signup/verify', async (req, res) => {
+  try {
+    const { name, password, otp, signupToken } = req.body;
+
+    if (!signupToken) return res.status(400).json({ message: "Signup session expired or token missing" });
+    if (!name || !password || !otp) return res.status(400).json({ message: "All fields are required" });
+
+    // Decode token and verify details
+    let decoded;
+    try {
+      decoded = jwt.verify(signupToken, JWT_SECRET);
+    } catch (e) {
+      return res.status(400).json({ message: "Invalid or expired signup token session" });
+    }
+    
+    if (decoded.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
+    if (new Date() > new Date(decoded.otpExpires)) return res.status(400).json({ message: "OTP has expired" });
+
+    const userExists = await User.findOne({ email: decoded.email });
+    if (userExists) return res.status(400).json({ message: "User already registered" });
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ name, email, password: hashedPassword });
+    const newUser = new User({ name, email: decoded.email, password: hashedPassword });
     await newUser.save();
 
     const token = jwt.sign({ userId: newUser._id }, JWT_SECRET, { expiresIn: '24h' });
@@ -55,18 +116,12 @@ app.post('/api/signup', async (req, res) => {
       user: { name: newUser.name, email: newUser.email, cart: newUser.cart } 
     });
   } catch (err) {
-    // Isse aapko Termux mein asli error dikhega
-    console.error("Signup Error Details:", err); 
-    res.status(500).json({ message: "Signup error", error: err.message });
+    console.error("Signup Verification Error Details:", err);
+    res.status(500).json({ message: "Verification error", error: err.message });
   }
 });
 
-
-
-
-
-
-// 2. Login API
+// --- 2. LOGIN API ---
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -81,10 +136,62 @@ app.post('/api/login', async (req, res) => {
     res.json({ 
       message: "Login success", 
       token, 
-      user: { name: user.name, email: user.email, cart: user.cart || [] } 
+      user: { name: user.name, email: user.email, cart: user.cart || {} } 
     });
   } catch (err) {
     res.status(500).json({ message: "Login error", error: err.message });
+  }
+});
+
+// --- 3. FORGOT PASSWORD FLOW ---
+
+// Step A: Send OTP for Password Reset
+app.post('/api/forgot-password/send-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User with this email does not exist" });
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    user.otp = otp;
+    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins validity
+    await user.save();
+
+    await sendOtpEmail(email, otp, "Password Reset OTP");
+
+    res.json({ message: "OTP sent to your registered email ID" });
+  } catch (err) {
+    console.error("Forgot Password OTP Error Details:", err);
+    res.status(500).json({ message: "Error sending OTP", error: err.message });
+  }
+});
+
+// Step B: Verify OTP & Reset Password
+app.post('/api/forgot-password/verify', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) return res.status(400).json({ message: "All fields are required" });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (!user.otp || user.otp !== otp) return res.status(400).json({ message: "Invalid OTP" });
+    if (new Date() > user.otpExpires) return res.status(400).json({ message: "OTP has expired" });
+
+    // Hash and update the new password, then clean up the database fields
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.otp = null;
+    user.otpExpires = null;
+    await user.save();
+
+    res.json({ message: "Password updated successfully! You can now log in." });
+  } catch (err) {
+    console.error("Forgot Password Reset Error Details:", err);
+    res.status(500).json({ message: "Error resetting password", error: err.message });
   }
 });
 
@@ -111,17 +218,17 @@ app.get('/api/user/profile', authMiddleware, async (req, res) => {
 
     res.json({ 
       message: "User details fetched successfully", 
-      user: { name: user.name, email: user.email, cart: user.cart || []} 
+      user: { name: user.name, email: user.email, cart: user.cart || {} } 
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
+
 app.post('/api/user/update-cart', authMiddleware, async (req, res) => {
   try {
-    const  cartData = req.body; // Yahan { "1": 5, "2": 6 } aayega
+    const cartData = req.body; 
 
-    // User find karein aur naya cart save karein
     const user = await User.findByIdAndUpdate(
       req.user.userId, 
       { cart: cartData }, 
@@ -136,8 +243,6 @@ app.post('/api/user/update-cart', authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
-
-
 
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
