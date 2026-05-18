@@ -4,7 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
-const nodemailer = require('nodemailer'); // Added for sending OTP emails
+const { Resend } = require("resend");
 
 const app = express();
 app.use(cors());
@@ -18,47 +18,31 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully!"))
   .catch(err => console.error("❌ MongoDB Connection Error:", err));
 
-// --- Nodemailer Transporter Setup ---
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-
-  family: 4, // IPv4 force
-
-  tls: {
-    rejectUnauthorized: false,
-  },
-
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
-});
-
-transporter.verify((error, success) => {
-  if (error) {
-    console.log("SMTP VERIFY ERROR:", error);
-  } else {
-    console.log("SMTP SERVER READY");
-  }
-});
 
 
-// Helper function to send email
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 const sendOtpEmail = async (email, otp, subject) => {
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: subject,
-    text: `Aapka OTP hai: ${otp}. Ye OTP agle 10 minutes tak valid hai.`
-  };
-  await transporter.sendMail(mailOptions);
+  try {
+    const response = await resend.emails.send({
+      from: "onboarding@resend.dev",
+      to: email,
+      subject: subject,
+      html: `
+        <h2>Your OTP is: ${otp}</h2>
+        <p>This OTP will expire in 5 minutes.</p>
+      `,
+    });
+
+    console.log(response);
+
+  } catch (error) {
+    console.log("Email Error:", error);
+  }
 };
+
+
+
 
 // --- User Schema ---
 const userSchema = new mongoose.Schema({
