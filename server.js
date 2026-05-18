@@ -21,8 +21,8 @@ mongoose.connect(MONGO_URI)
 // --- Nodemailer Transporter Setup ---
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,        // Secure port for SSL
-  secure: true,      // true for port 465, false for port 587
+  port: 587,        // Secure port for SSL
+  secure: false,      // true for port 465, false for port 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS // Make sure this is a 16-digit App Password
