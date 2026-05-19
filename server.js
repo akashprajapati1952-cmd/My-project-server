@@ -126,7 +126,210 @@ app.post('/api/signup/verify', async (req, res) => {
     res.status(500).json({ message: "Verification error", error: err.message });
   }
 });
+// --- Middleware & Profile Route ---
+const authMiddleware = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: "Access Denied: No Token Provided" });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded; 
+    next();
+  } catch (err) {
+    res.status(401).json({ message: "Invalid Token" });
+  }
+};
 
+// ===============================
+// EDIT PROFILE (ONLY NAME)
+// ===============================
+app.put('/api/user/edit-profile', authMiddleware, async (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (!name || name.trim() === "") {
+      return res.status(400).json({
+        message: "Name is required"
+      });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.userId,
+      { name: name.trim() },
+      { new: true }
+    ).select('-password');
+
+    res.json({
+      message: "Profile updated successfully",
+      user: updatedUser
+    });
+
+  } catch (err) {
+    console.error("Edit Profile Error:", err);
+
+    res.status(500).json({
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
+
+
+// ===============================
+// SEND OTPs FOR EMAIL CHANGE
+// ===============================
+app.post('/api/user/change-email/send-otp', authMiddleware, async (req, res) => {
+  try {
+    const { newEmail } = req.body;
+
+    if (!newEmail) {
+      return res.status(400).json({
+        message: "New email is required"
+      });
+    }
+
+    // Check if new email already exists
+    const emailExists = await User.findOne({ email: newEmail });
+
+    if (emailExists) {
+      return res.status(400).json({
+        message: "Email already in use"
+      });
+    }
+
+    const user = await User.findById(req.user.userId);
+
+    // Generate OTPs
+    const oldEmailOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const newEmailOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Save temporarily
+    user.otp = JSON.stringify({
+      oldEmailOtp,
+      newEmailOtp,
+      newEmail
+    });
+
+    user.otpExpires = otpExpires;
+
+    await user.save();
+
+    // Send OTP to OLD email
+    await sendOtpEmail(
+      user.email,
+      oldEmailOtp,
+      "Verify Old Email"
+    );
+
+    // Send OTP to NEW email
+    await sendOtpEmail(
+      newEmail,
+      newEmailOtp,
+      "Verify New Email"
+    );
+
+    res.json({
+      message: "OTPs sent to both email addresses"
+    });
+
+  } catch (err) {
+    console.error("Change Email OTP Error:", err);
+
+    res.status(500).json({
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
+
+
+// ===============================
+// VERIFY BOTH OTPs & CHANGE EMAIL
+// ===============================
+app.post('/api/user/change-email/verify', authMiddleware, async (req, res) => {
+  try {
+    const { oldEmailOtp, newEmailOtp } = req.body;
+
+    if (!oldEmailOtp || !newEmailOtp) {
+      return res.status(400).json({
+        message: "Both OTPs are required"
+      });
+    }
+
+    const user = await User.findById(req.user.userId);
+
+    if (!user || !user.otp) {
+      return res.status(400).json({
+        message: "No verification request found"
+      });
+    }
+
+    // Expiry check
+    if (new Date() > user.otpExpires) {
+      return res.status(400).json({
+        message: "OTP expired"
+      });
+    }
+
+    // Parse stored data
+    const otpData = JSON.parse(user.otp);
+
+    // Verify OTPs
+    if (otpData.oldEmailOtp !== oldEmailOtp) {
+      return res.status(400).json({
+        message: "Invalid old email OTP"
+      });
+    }
+
+    if (otpData.newEmailOtp !== newEmailOtp) {
+      return res.status(400).json({
+        message: "Invalid new email OTP"
+      });
+    }
+
+    // Final duplicate email check
+    const emailExists = await User.findOne({
+      email: otpData.newEmail
+    });
+
+    if (emailExists) {
+      return res.status(400).json({
+        message: "Email already in use"
+      });
+    }
+
+    // Update email
+    user.email = otpData.newEmail;
+
+    // Cleanup
+    user.otp = null;
+    user.otpExpires = null;
+
+    await user.save();
+
+    res.json({
+      message: "Email updated successfully",
+      user: {
+        name: user.name,
+        email: user.email,
+        cart: user.cart || {}
+      }
+    });
+
+  } catch (err) {
+    console.error("Verify Email Change Error:", err);
+
+    res.status(500).json({
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
 // --- 2. LOGIN API ---
 app.post('/api/login', async (req, res) => {
   try {
@@ -201,21 +404,7 @@ app.post('/api/forgot-password/verify', async (req, res) => {
   }
 });
 
-// --- Middleware & Profile Route ---
-const authMiddleware = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: "Access Denied: No Token Provided" });
-  }
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; 
-    next();
-  } catch (err) {
-    res.status(401).json({ message: "Invalid Token" });
-  }
-};
+
 
 app.get('/api/user/profile', authMiddleware, async (req, res) => {
   try {
