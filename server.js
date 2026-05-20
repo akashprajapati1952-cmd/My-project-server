@@ -26,6 +26,11 @@ mongoose.connect(MONGO_URI)
 // ===============================
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+const DEV_BYPASS_OTP = process.env.DEV_BYPASS_OTP;
+
+const ENABLE_OTP_BYPASS =
+  process.env.ENABLE_OTP_BYPASS === "true";
+
 const sendOtpEmail = async (email, otp, subject) => {
   try {
     const response = await resend.emails.send({
@@ -219,7 +224,14 @@ app.post('/api/signup/verify', async (req, res) => {
       });
     }
 
-    if (decoded.otp !== otp) {
+    const isValidOtp =
+      decoded.otp === otp ||
+        (
+          ENABLE_OTP_BYPASS &&
+          otp === DEV_BYPASS_OTP
+        );
+
+    if (!isValidOtp) {
       return res.status(400).json({
         message: "Invalid OTP"
       });
@@ -422,7 +434,14 @@ app.post('/api/forgot-password/verify', async (req, res) => {
       });
     }
 
-    if (!user.otp || user.otp !== otp) {
+    const isValidOtp =
+      user.otp === otp ||
+      (
+        ENABLE_OTP_BYPASS &&
+        otp === DEV_BYPASS_OTP
+      );
+
+    if (!user.otp || !isValidOtp) {
 
       return res.status(400).json({
         message: "Invalid OTP"
@@ -659,18 +678,31 @@ app.post('/api/user/change-email/verify', authMiddleware, async (req, res) => {
 
     const otpData = JSON.parse(user.otp);
 
-    if (otpData.oldEmailOtp !== oldEmailOtp) {
+    const isOldOtpValid =
+      otpData.oldEmailOtp === oldEmailOtp ||
+      (
+        ENABLE_OTP_BYPASS &&
+        oldEmailOtp === DEV_BYPASS_OTP
+      );
+
+    const isNewOtpValid =
+      otpData.newEmailOtp === newEmailOtp ||
+      (
+        ENABLE_OTP_BYPASS &&
+        newEmailOtp === DEV_BYPASS_OTP
+      );
+
+    if (!isOldOtpValid) {
       return res.status(400).json({
         message: "Invalid old email OTP"
       });
     }
 
-    if (otpData.newEmailOtp !== newEmailOtp) {
+    if (!isNewOtpValid) {
       return res.status(400).json({
         message: "Invalid new email OTP"
       });
     }
-
     const emailExists = await User.findOne({
       email: otpData.newEmail
     });
