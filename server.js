@@ -106,7 +106,7 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 const userRoutes = require('./router/profile'); // आपकी प्रोफाइल/यूज़र राउट्स वाली फाइल
-app.use('/api/user', userRoutes);
+
 // ===============================
 // AUTH MIDDLEWARE
 // ===============================
@@ -137,6 +137,8 @@ const authMiddleware = (req, res, next) => {
     });
   }
 };
+
+app.use('/api/user', userRoutes);
 
 // ===============================
 // SIGNUP - SEND OTP
