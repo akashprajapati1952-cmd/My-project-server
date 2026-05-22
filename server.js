@@ -747,6 +747,46 @@ app.post('/api/user/change-email/verify', authMiddleware, async (req, res) => {
   }
 });
 
+// Temporary hardcoded coupons list
+const TEMPORARY_COUPONS = [
+  { code: "FESTIVAL20", discountType: "percentage", discountValue: 20, minCartValue: 500 },
+  { code: "FLAT100", discountType: "fixed", discountValue: 100, minCartValue: 1000 }
+];
+
+// ===============================
+// APPLY COUPON (Bina Nayi Table Ke)
+// ===============================
+app.post('/api/apply-coupon', authMiddleware, (req, res) => {
+  try {
+    const { code, cartTotal } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ message: "Coupon code is required" });
+    }
+
+    // Array mein se coupon check karein
+    const coupon = TEMPORARY_COUPONS.find(c => c.code === code.toUpperCase());
+
+    if (!coupon) {
+      return res.status(404).json({ message: "Invalid coupon code" });
+    }
+
+    if (cartTotal < coupon.minCartValue) {
+      return res.status(400).json({ 
+        message: `Minimum shopping ₹${coupon.minCartValue} ki honi chahiye is coupon ke liye.` 
+      });
+    }
+
+    res.json({
+      message: "Coupon applied successfully",
+      coupon
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 // ===============================
 // UPDATE CART
 // ===============================
