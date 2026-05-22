@@ -179,7 +179,7 @@ app.put('/api/user/update-profile-pic',authMiddleware, upload.single('profilePic
 });
 
 // प्रोफाइल का लेटेस्ट डेटा (फोटो के साथ) प्राप्त करने का राउट
-app.get('/api/user/profile-details', async (req, res) => {
+app.get('/api/user/profile-details',authMiddleware, async (req, res) => {
   try {
     // req.user.userId आपके server.js के authMiddleware से पास होकर यहाँ आएगा
     const user = await User.findById(req.user.userId).select("-password -otp -otpExpires -__v");
