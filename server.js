@@ -6,10 +6,12 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const { Resend } = require("resend");
 
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); 
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const MONGO_URI = process.env.MONGO_URI;
@@ -30,6 +32,13 @@ const DEV_BYPASS_OTP = process.env.DEV_BYPASS_OTP;
 
 const ENABLE_OTP_BYPASS =
   process.env.ENABLE_OTP_BYPASS === "true";
+  
+
+
+// बेसिक रूट (टेस्टिंग के लिए)
+app.get('/', (req, res) => {
+  res.send('Shopzilla Backend Server is Running...');
+});
 
 const sendOtpEmail = async (email, otp, subject) => {
   try {
@@ -51,7 +60,7 @@ const sendOtpEmail = async (email, otp, subject) => {
 };
 
 // ===============================
-// User Schema
+// User Schema (UPDATED WITH PROFILE PIC)
 // ===============================
 const userSchema = new mongoose.Schema({
   name: {
@@ -76,6 +85,12 @@ const userSchema = new mongoose.Schema({
     default: {}
   },
 
+  // प्रोफाइल फोटो के लिए नई फ़ील्ड यहाँ जोड़ी गई है
+  profilePic: {
+    type: String,
+    default: ""
+  },
+
   // OTP fields
   otp: {
     type: String,
@@ -86,10 +101,12 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   }
-});
+}, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
 
+const userRoutes = require('./router/profile'); // आपकी प्रोफाइल/यूज़र राउट्स वाली फाइल
+app.use('/api/user', userRoutes);
 // ===============================
 // AUTH MIDDLEWARE
 // ===============================
@@ -279,6 +296,7 @@ app.post('/api/signup/verify', async (req, res) => {
       user: {
         name: newUser.name,
         email: newUser.email,
+        profilePic: newUser.profilePic || "", // फ्रंटएंड सिंक के लिए जोड़ा
         cart: newUser.cart || {}
       }
     });
@@ -338,6 +356,7 @@ app.post('/api/login', async (req, res) => {
       user: {
         name: user.name,
         email: user.email,
+        profilePic: user.profilePic || "", // फ्रंटएंड सिंक के लिए जोड़ा
         cart: user.cart || {}
       }
     });
@@ -732,6 +751,7 @@ app.post('/api/user/change-email/verify', authMiddleware, async (req, res) => {
       user: {
         name: user.name,
         email: user.email,
+        profilePic: user.profilePic || "",
         cart: user.cart || {}
       }
     });
