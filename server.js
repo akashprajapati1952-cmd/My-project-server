@@ -148,7 +148,7 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-app.put('/api/user/update-profile-pic', upload.single('profilePic'), async (req, res) => {
+app.put('/api/user/update-profile-pic',authMiddleware, upload.single('profilePic'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "कृपया एक फ़ाइल चुनें" });
